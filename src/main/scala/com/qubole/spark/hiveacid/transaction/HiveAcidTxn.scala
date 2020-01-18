@@ -112,7 +112,7 @@ object HiveAcidTxn extends Logging {
     } else {
       txnManager.getValidWriteIds(txn.txnId, txn.validTxnList ,hiveAcidMetadata.fullyQualifiedName)
     }
-    HiveAcidTableSnapshot(validWriteIdList, currentWriteId)
+    HiveAcidTableSnapshot(validWriteIdList, currentWriteId, txn.validTxnList)
   }
 
   // Txn manager is connection to HMS. Use single instance of it
@@ -143,4 +143,6 @@ object HiveAcidTxn extends Logging {
   }
 }
 
-private[hiveacid] case class HiveAcidTableSnapshot(validWriteIdList: ValidWriteIdList, currentWriteId: Long)
+private[hiveacid] case class HiveAcidTableSnapshot(validWriteIdList: ValidWriteIdList,
+                                                   currentWriteId: Long,
+                                                   validTxnList : ValidTxnList)

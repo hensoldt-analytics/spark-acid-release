@@ -27,7 +27,7 @@ import scala.collection.JavaConverters._
 import com.esotericsoftware.kryo.Kryo
 import com.esotericsoftware.kryo.io.Output
 import com.qubole.shaded.hadoop.hive.conf.HiveConf.ConfVars
-import com.qubole.shaded.hadoop.hive.common.ValidWriteIdList
+import com.qubole.shaded.hadoop.hive.common.{ValidWriteIdList, ValidTxnList}
 import com.qubole.shaded.hadoop.hive.metastore.api.FieldSchema
 import com.qubole.shaded.hadoop.hive.metastore.api.hive_metastoreConstants._
 import com.qubole.shaded.hadoop.hive.metastore.utils.MetaStoreUtils.{getColumnNamesFromFieldSchema, getColumnTypesFromFieldSchema}
@@ -72,11 +72,13 @@ import org.apache.spark.unsafe.types.UTF8String
  * @param readerOptions - reader options for creating RDD
  * @param hiveAcidOptions - hive related reader options for creating RDD
  * @param validWriteIds - validWriteIds
+ * @param ValidTxnList - The valid txn list for the current snapshot
  */
 private[reader] class HiveAcidReader(sparkSession: SparkSession,
                                      readerOptions: ReaderOptions,
                                      hiveAcidOptions: HiveAcidReaderOptions,
-                                     validWriteIds: ValidWriteIdList)
+                                     validWriteIds: ValidWriteIdList,
+                                     validTxnList : ValidTxnList)
 
 extends CastSupport with Reader with Logging {
 
@@ -345,6 +347,7 @@ extends CastSupport with Reader with Logging {
     val rdd = new HiveAcidRDD(
       sparkSession.sparkContext,
       validWriteIds,
+      validTxnList,
       hiveAcidOptions.isFullAcidTable,
       _broadcastedHadoopConf.asInstanceOf[Broadcast[SerializableConfiguration]],
       Some(initializeJobConfFunc),

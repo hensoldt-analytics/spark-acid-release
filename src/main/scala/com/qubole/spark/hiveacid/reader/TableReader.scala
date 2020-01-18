@@ -108,7 +108,8 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
       sparkSession,
       readerOptions,
       hiveAcidReaderOptions,
-      curSnapshot.validWriteIdList)
+      curSnapshot.validWriteIdList,
+      curSnapshot.validTxnList)
 
     val rdd = if (hiveAcidMetadata.isPartitioned) {
       reader.makeRDDForPartitionedTable(hiveAcidMetadata, partitions)

@@ -8,6 +8,8 @@ scalaVersion := crossScalaVersions.value.head
 
 sparkVersion := sys.props.getOrElse("spark.version", "2.4.3")
 
+val hadoopVersion = sys.props.getOrElse("hadoop.version", "2.8.1")
+
 scalacOptions ++= Seq(
 	"-Xlint",
 	"-Xfatal-warnings",
@@ -40,8 +42,8 @@ libraryDependencies ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-	"org.apache.hadoop" % "hadoop-common" % "2.8.1" % "provided",
-	"org.apache.hadoop" % "hadoop-hdfs" % "2.8.1" % "provided",
+	"org.apache.hadoop" % "hadoop-common" % hadoopVersion % "provided",
+	"org.apache.hadoop" % "hadoop-hdfs" % hadoopVersion % "provided",
 	// Dependencies for tests
 	//
 	"org.scalatest" %% "scalatest" % "3.0.5" % "test"

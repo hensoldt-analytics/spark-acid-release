@@ -34,6 +34,7 @@ import com.qubole.spark.hiveacid.util.{SerializableConfiguration, Util}
 import com.qubole.spark.hiveacid.util.{SerializableWritable => _}
 import org.apache.hadoop.conf.{Configurable, Configuration}
 import org.apache.hadoop.fs.Path
+import com.qubole.shaded.hadoop.hive.common.ValidTxnList
 import org.apache.hadoop.mapred.{FileInputFormat, _}
 import org.apache.hadoop.mapreduce.TaskType
 import org.apache.hadoop.util.ReflectionUtils
@@ -83,6 +84,7 @@ private class HiveAcidPartition(rddId: Int, override val index: Int, s: InputSpl
  */
 private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
                                      @transient val validWriteIds: ValidWriteIdList,
+                                     @transient val validTxnList : ValidTxnList,
                                      @transient val isFullAcidTable: Boolean,
                                      broadcastedConf: Broadcast[SerializableConfiguration],
                                      initLocalJobConfFuncOpt: Option[JobConf => Unit],
@@ -95,6 +97,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
   def this(
             sc: SparkContext,
             @transient validWriteIds: ValidWriteIdList,
+            @transient validTxnList : ValidTxnList,
             @transient isFullAcidTable: Boolean,
             conf: JobConf,
             inputFormatClass: Class[_ <: InputFormat[K, V]],
@@ -104,6 +107,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
     this(
       sc,
       validWriteIds,
+      validTxnList,
       isFullAcidTable,
       sc.broadcast(new SerializableConfiguration(conf))
         .asInstanceOf[Broadcast[SerializableConfiguration]],
@@ -198,6 +202,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
       // If full ACID table, just set the right writeIds, the
       // OrcInputFormat.getSplits() will take care of the rest
       AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
+      jobConf.set(ValidTxnList.VALID_TXNS_KEY, validTxnList.writeToString)
     } else {
       val finalPaths = new ListBuffer[Path]()
       val pathsWithFileOriginals = new ListBuffer[Path]()
