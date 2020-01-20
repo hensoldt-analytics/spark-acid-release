@@ -23,7 +23,13 @@ scalacOptions in (Compile, doc) ++= Seq(
 	"-no-link-warnings" // Suppresses problems with Scaladoc @throws links
 )
 
+val gbnUrl = sys.props.getOrElse("gbnurl", "https://repo1.maven.org/maven2/")
+val repoUrl = sys.props.getOrElse("hive.repo", "https://repo1.maven.org/maven2/")
+resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"
+resolvers += "Additional Maven Repository" at repoUrl
+resolvers += "GBN Maven Repository" at gbnUrl
 resolvers += "spark-packages" at sys.props.getOrElse("spark.repo", "https://dl.bintray.com/spark-packages/maven/")
+resolvers += "Hortonworks Maven Repository" at "https://repo.hortonworks.com/content/groups/public/"
 
 libraryDependencies ++= Seq(
 	// Adding test classifier seems to break transitive resolution of the core dependencies

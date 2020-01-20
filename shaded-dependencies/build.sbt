@@ -32,7 +32,18 @@ val hive_version = sys.props.getOrElse("hive.version", "3.1.2")
 
 val orc_version = sys.props.getOrElse("orc.version", "1.5.6")
 
-resolvers += "Additional Maven Repository" at sys.props.getOrElse("hive.repo", "https://repo1.maven.org/maven2/")
+val thriftVersion = sys.props.getOrElse("thrift.version", "0.9.3")
+
+val libfbVersion = sys.props.getOrElse("libfb.version", "0.9.3")
+
+val gbnUrl = sys.props.getOrElse("gbnurl", "https://repo1.maven.org/maven2/")
+val repoUrl = sys.props.getOrElse("hive.repo", "https://repo1.maven.org/maven2/")
+resolvers += "spark-packages" at sys.props.getOrElse("spark.repo", "https://dl.bintray.com/spark-packages/maven/")
+resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"
+resolvers += "GBN Maven Repository" at gbnUrl
+resolvers += "Additional Maven Repository" at repoUrl
+resolvers += "Hortonworks Maven Repository" at "http://repo.hortonworks.com/content/groups/public/"
+resolvers += "Cloudera Maven Repository" at "https://nexus-private.hortonworks.com/nexus/content/groups/public"
 
 // Shaded dependency
 libraryDependencies ++= Seq(
@@ -50,8 +61,8 @@ libraryDependencies ++= Seq(
 
 	// To deal with hive3 metastore library 0.9.3 vs zeppelin thirft
 	// library version 0.9.1 conflict when runing Notebooks.
-	"org.apache.thrift" % "libfb303" % "0.9.3",
-	"org.apache.thrift" % "libthrift" % "0.9.3"
+	"org.apache.thrift" % "libfb303" % libfbVersion,
+	"org.apache.thrift" % "libthrift" % thriftVersion
 )
 
 assemblyShadeRules in assembly := Seq(
