@@ -61,6 +61,15 @@ libraryDependencies ++= Seq(
 )
 
 
+// Make assembly as default artifact
+publishArtifact in (Compile, packageBin) := false
+artifact in (Compile, assembly) := {
+  val art = (artifact in (Compile, assembly)).value
+  art.copy(`classifier` = None)
+}
+addArtifact(artifact in (Compile, assembly), assembly)
+
+
 // Remove shaded dependency jar from pom.
 import scala.xml.{Node => XmlNode, NodeSeq => XmlNodeSeq, _}
 import scala.xml.transform.{RewriteRule, RuleTransformer}
