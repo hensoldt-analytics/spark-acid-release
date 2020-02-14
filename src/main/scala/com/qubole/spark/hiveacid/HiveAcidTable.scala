@@ -50,9 +50,26 @@ class HiveAcidTable(sparkSession: SparkSession,
   private var isLocalTxn: Boolean = false
   private var curTxn: HiveAcidTxn = _
 
+  private def addLock() : Unit = {
+    curTxn = HiveAcidTxnManagerObject.getTxn(sparkSession)
+    if (curTxn != null) {
+      curTxn.addTableLock(hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)
+    }
+  }
+  addLock()
+
+  def endTxn(): Unit = {
+    if (curTxn != null && !curTxn.istxnClosed()) {
+      if (HiveAcidTxnManagerObject.getTxn(sparkSession) == curTxn) {
+        HiveAcidTxnManagerObject.commitTxn(sparkSession)
+      } else {
+        curTxn.end()
+      }
+    }
+  }
+
   // Start local transaction if not passed.
   private def getOrCreateTxn(): Unit = {
-    curTxn = HiveAcidTxn.currentTxn()
     curTxn match {
       case null =>
         // create local txn

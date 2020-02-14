@@ -71,17 +71,17 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   private val shutdownInitiated: AtomicBoolean = new AtomicBoolean(true)
 
   /**
-    * Register transactions with Hive Metastore and tracks it under HiveAcidTxnManager.activeTxns
+    * Register transactions with Hive Metastore and tracks it under HiveAcidTxnManagerObject.activeTxns
     * @param txn transaction which needs to begin.
     * @return Update transaction object
     */
   def beginTxn(txn: HiveAcidTxn): Long = synchronized {
     // 1. Open transaction
     val txnId = client.openTxn(HiveAcidDataSource.NAME)
-    if (HiveAcidTxnManager.activeTxns.contains(txnId)) {
-      throw HiveAcidErrors.repeatedTxnId(txnId, HiveAcidTxnManager.activeTxns.keySet.toSeq)
+    if (HiveAcidTxnManagerObject.activeTxns.contains(txnId)) {
+      throw HiveAcidErrors.repeatedTxnId(txnId, HiveAcidTxnManagerObject.activeTxns.keySet.toSeq)
     }
-    HiveAcidTxnManager.activeTxns.put(txnId, txn)
+    HiveAcidTxnManagerObject.activeTxns.put(txnId, txn)
     logDebug(s"Adding txnId: $txnId to tracker")
     txnId
   }
@@ -95,7 +95,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
     try {
       // NB: Remove it from tracking before making HMS call
       // which can potentially fail.
-      HiveAcidTxnManager.activeTxns.remove(txnId)
+      HiveAcidTxnManagerObject.activeTxns.remove(txnId)
       logDebug(s"Removing txnId: $txnId from tracker")
       if (abort) {
         client.abortTxns(scala.collection.JavaConversions.seqAsJavaList(Seq(txnId)))
@@ -128,10 +128,10 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
     // heartBeater.awaitTermination(10, TimeUnit.SECONDS)
 
     // abort all active transactions
-    HiveAcidTxnManager.activeTxns.foreach {
+    HiveAcidTxnManagerObject.activeTxns.foreach {
       case (_, txn) => txn.end(true)
     }
-    HiveAcidTxnManager.activeTxns.clear()
+    HiveAcidTxnManagerObject.activeTxns.clear()
 
     // close all clients
     if (client != null) {
@@ -163,6 +163,10 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
       case Some(id) => client.getValidTxns(id)
       case None => client.getValidTxns()
     }
+  }
+
+  def getTxn(txnId: Long): HiveAcidTxn = synchronized {
+    HiveAcidTxnManagerObject.activeTxns.get(txnId).orNull
   }
 
   /**
@@ -206,67 +210,30 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   /**
     * API to acquire locks on partitions
     * @param txnId transaction id
-    * @param dbName: Database name
-    * @param tableName: Table name
+    * @param lockInfo: List of objects to be locked
     * @param operationType lock type
-    * @param partitionNames partition names
     */
   def acquireLocks(txnId: Long,
-                   dbName: String,
-                   tableName: String,
-                   operationType: HiveAcidOperation.OperationType,
-                   partitionNames: Seq[String]): Unit = synchronized {
-
-    // Consider following sequence of event
-    //  T1:   R(x)
-    //  T2:   R(x)
-    //  T2:   W(x)
-    //  T2:   Commit
-    //  T1:   W(x)
-    // Because read happens with MVCC it is possible that some other transaction
-    // may have come and performed write. To protect against the lost write due
-    // to above sequence hive maintains write-set and abort conflict transaction
-    // optimistically at the commit time.
-    def addLockType(lcb: LockComponentBuilder): LockComponentBuilder = {
-      operationType match {
-        case HiveAcidOperation.INSERT_OVERWRITE =>
-          lcb.setExclusive().setOperationType(DataOperationType.UPDATE)
-        case HiveAcidOperation.INSERT_INTO =>
-          lcb.setShared().setOperationType(DataOperationType.INSERT)
-        case HiveAcidOperation.READ =>
-          lcb.setShared().setOperationType(DataOperationType.SELECT)
-        case HiveAcidOperation.UPDATE =>
-          lcb.setSemiShared().setOperationType(DataOperationType.UPDATE)
-        case HiveAcidOperation.DELETE =>
-          lcb.setSemiShared().setOperationType(DataOperationType.DELETE)
-        case _ =>
-          throw HiveAcidErrors.invalidOperationType(operationType.toString)
-      }
-    }
+                   lockInfo: LockInfo,
+                   operationType: HiveAcidOperation.OperationType
+                   ): Unit = synchronized {
 
     def createLockRequest() = {
-      val requestBuilder = new LockRequestBuilder(HiveAcidDataSource.NAME)
-      requestBuilder.setUser(user)
-      requestBuilder.setTransactionId(txnId)
-     if (partitionNames.isEmpty) {
-        val lockCompBuilder = new LockComponentBuilder()
-          .setDbName(dbName)
-          .setTableName(tableName)
-
-        requestBuilder.addLockComponent(addLockType(lockCompBuilder).build)
+      if (!lockInfo.getLocked) {
+        val requestBuilder = new LockRequestBuilder(HiveAcidDataSource.NAME)
+        requestBuilder.setUser(user)
+        requestBuilder.setTransactionId(txnId)
+        lockInfo.addLockComponents(requestBuilder, operationType)
+        requestBuilder.build
       } else {
-        partitionNames.foreach(partName => {
-          val lockCompBuilder = new LockComponentBuilder()
-            .setPartitionName(partName)
-            .setDbName(dbName)
-            .setTableName(tableName)
-          requestBuilder.addLockComponent(addLockType(lockCompBuilder).build)
-        })
+        null
       }
-      requestBuilder.build
     }
 
     def lock(lockReq: LockRequest): Unit = {
+      if (lockInfo.getLocked) {
+        return
+      }
       var nextSleep = 50L
 
       // FIXME: This is crazy long wait for locks. Sleep starts from 50ms and
@@ -299,6 +266,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
         if (res.getState != LockState.ACQUIRED) {
           throw HiveAcidErrors.couldNotAcquireLockException(state = res.getState.name())
         }
+        lockInfo.setLocked()
       } catch {
         case e: TException =>
           logWarning("Unable to acquire lock", e)
@@ -340,8 +308,8 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
         return
       }
 
-      if (HiveAcidTxnManager.activeTxns.nonEmpty) {
-        HiveAcidTxnManager.activeTxns.foreach {
+      if (HiveAcidTxnManagerObject.activeTxns.nonEmpty) {
+        HiveAcidTxnManagerObject.activeTxns.foreach {
           case (_, txn) => send(txn)
         }
      }
@@ -353,10 +321,168 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   }
 }
 
-protected[hiveacid] object HiveAcidTxnManager {
+
+private [hiveacid] class LockInfo extends Logging {
+  private val lockTaken: AtomicBoolean = new AtomicBoolean(false)
+  private val lockInfo = new scala.collection.mutable.HashMap[String,
+    scala.collection.mutable.HashMap[String, Seq[String]]]
+
+  def setLocked() : Unit = lockTaken.set(true)
+
+  def getLocked : Boolean = lockTaken.get()
+
+  def addTableLock(dbName: String, tblName: String) : LockInfo = {
+    if (getLocked) {
+      throw new Exception("Lock acquire is already done for the txn")
+    }
+
+    var tableLock = lockInfo.get(dbName).orNull
+    if (tableLock == null) {
+      tableLock = new scala.collection.mutable.HashMap[String, Seq[String]]
+    }
+    tableLock.put(tblName, null)
+    lockInfo.put(dbName, tableLock)
+    this
+  }
+
+  def addPartitionLock(dbName: String, tblName: String, partitionNames: Seq[String]) : LockInfo = {
+    if (getLocked) {
+      throw new Exception("Lock acquire is already done for the txn")
+    }
+    var tableLock = lockInfo.get(dbName).orNull
+    if (tableLock == null) {
+      tableLock = new scala.collection.mutable.HashMap[String, Seq[String]]
+      tableLock.put(tblName, partitionNames)
+    } else {
+      var partList = tableLock.get(tblName).orNull
+      if (partList == null) {
+        partList = partitionNames
+      } else {
+        partList ++= partitionNames
+      }
+      /*partitionNames.foreach(partName => {
+        partList += partName
+      })*/
+      tableLock.put(tblName, partList)
+    }
+    tableLock.put(tblName, null)
+    lockInfo.put(dbName, tableLock)
+    this
+  }
+
+  // Consider following sequence of event
+  //  T1:   R(x)
+  //  T2:   R(x)
+  //  T2:   W(x)
+  //  T2:   Commit
+  //  T1:   W(x)
+  // Because read happens with MVCC it is possible that some other transaction
+  // may have come and performed write. To protect against the lost write due
+  // to above sequence hive maintains write-set and abort conflict transaction
+  // optimistically at the commit time.
+  def addLockType(lcb: LockComponentBuilder, operationType: HiveAcidOperation.OperationType): LockComponentBuilder = {
+    operationType match {
+      case HiveAcidOperation.INSERT_OVERWRITE =>
+        lcb.setExclusive().setOperationType(DataOperationType.UPDATE)
+      case HiveAcidOperation.INSERT_INTO =>
+        lcb.setShared().setOperationType(DataOperationType.INSERT)
+      case HiveAcidOperation.READ =>
+        lcb.setShared().setOperationType(DataOperationType.SELECT)
+      case HiveAcidOperation.UPDATE =>
+        lcb.setSemiShared().setOperationType(DataOperationType.UPDATE)
+      case HiveAcidOperation.DELETE =>
+        lcb.setSemiShared().setOperationType(DataOperationType.DELETE)
+      case _ =>
+        throw HiveAcidErrors.invalidOperationType(operationType.toString)
+    }
+  }
+
+  def addLockComponents(lockRequestBuilder: LockRequestBuilder, operationType: HiveAcidOperation.OperationType) : Unit = {
+    for ((dbName, tableInfo) <- lockInfo) {
+      for ((tableName, partitionNames) <- tableInfo) {
+        if (partitionNames == null || partitionNames.isEmpty) {
+          val lockCompBuilder = new LockComponentBuilder()
+            .setDbName(dbName)
+            .setTableName(tableName)
+          lockRequestBuilder.addLockComponent(addLockType(lockCompBuilder, operationType).build)
+          logDebug(s"Added lock component for database $dbName table  $tableName")
+        } else {
+          partitionNames.foreach(partName => {
+            val lockCompBuilder = new LockComponentBuilder()
+              .setPartitionName(partName)
+              .setDbName(dbName)
+              .setTableName(tableName)
+            lockRequestBuilder.addLockComponent(addLockType(lockCompBuilder, operationType).build)
+            logDebug(s"Added lock component for database $dbName table  $tableName partName $partName")
+          })
+        }
+      }
+    }
+  }
+}
+
+object HiveAcidTxnManagerObject {
   // Maintain activeTxns inside txnManager instead of HiveAcidTxn
   // object for it to be accessible to back ground thread running
   // inside HiveAcidTxnManager.
-  protected val activeTxns = new scala.collection.mutable.HashMap[Long, HiveAcidTxn]()
-  def getTxn(txnId: Long): Option[HiveAcidTxn] = HiveAcidTxnManager.activeTxns.get(txnId)
+  private[hiveacid] val activeTxns = new scala.collection.mutable.HashMap[Long, HiveAcidTxn]()
+  private val sessionToTxnMap = new scala.collection.mutable.HashMap[SparkSession, HiveAcidTxn]()
+  def openTxn(sparkSession: SparkSession) : Unit = synchronized {
+    var curTxn = sessionToTxnMap.get(sparkSession).orNull
+    curTxn match {
+      case null => createTxn(sparkSession)
+      case txn => {
+        if (txn.istxnClosed()) {
+          sessionToTxnMap.remove(sparkSession)
+          createTxn(sparkSession)
+        } else {
+          throw new Exception(s"Existing Transaction $txn")
+        }
+      }
+    }
+  }
+
+  private def createTxn(sparkSession: SparkSession) : Unit = {
+    var curTxn = HiveAcidTxn.createTransaction(sparkSession)
+    try {
+      curTxn.begin(false)
+    } finally {
+      if (!curTxn.istxnClosed()) sessionToTxnMap.put(sparkSession, curTxn)
+    }
+  }
+
+  def commitTxn(sparkSession: SparkSession) : Unit = synchronized {
+    var curTxn = sessionToTxnMap.get(sparkSession).orNull
+    curTxn match {
+      case null => throw new Exception(s" No Transaction Exist")
+      case txn =>
+        try {
+          txn.end()
+        } finally {
+          if (txn.istxnClosed()) sessionToTxnMap.remove(sparkSession)
+        }
+    }
+  }
+
+  private[hiveacid] def getTxn(sparkSession: SparkSession) : HiveAcidTxn = synchronized {
+    sessionToTxnMap.get(sparkSession).orNull
+  }
+
+  def registerTxnListeners(sparkSession: SparkSession) : Unit = synchronized {
+    sparkSession.sparkContext.addSparkListener(new SparkAcidListener(sparkSession))
+    sparkSession.listenerManager.register(new SparkAcidQueryListener(sparkSession))
+  }
+
+  /*def unregisterTxnListeners(sparkSession: SparkSession) : Unit = synchronized {
+    sparkSession.sparkContext.removeSparkListener(new SparkAcidListener())
+    sparkSession.listenerManager.unregister(new SparkAcidQueryListener())
+  }
+
+  def endAllTxn(): Unit = synchronized {
+    // abort all active transactions
+    activeTxns.foreach {
+      case (_, txn) => txn.end(true)
+    }
+    activeTxns.clear()
+  }*/
 }

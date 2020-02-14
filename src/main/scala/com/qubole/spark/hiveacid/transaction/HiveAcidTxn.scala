@@ -38,6 +38,8 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
   protected var id: Long = -1
   protected var validTxnList: ValidTxnList = _
   private [hiveacid] val isClosed: AtomicBoolean = new AtomicBoolean(true)
+  private val lockInfo = new LockInfo
+  private var isLocaltxn = false
 
   private def setTxn(id: Long, txns:ValidTxnList): Unit = {
     this.id = id
@@ -54,9 +56,9 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
   override def toString: String = s"""{"id":"$id","validTxns":"$validTxnList"}"""
 
   /**
-    * Public API to being transaction.
+    * Public API to begin transaction.
     */
-  def begin(): Unit = synchronized {
+  def begin(isLocal: Boolean = true): Unit = synchronized {
     if (!isClosed.get) {
       throw HiveAcidErrors.txnAlreadyOpen(id)
     }
@@ -64,9 +66,11 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
     val txnList = HiveAcidTxn.txnManager.getValidTxns(Some(newId))
     setTxn(newId, txnList)
     // Set it for thread for all future references.
-    HiveAcidTxn.threadLocal.set(this)
-    logDebug(s"Begin transaction $this")
+    logInfo(s"Begin transaction $this")
+    isLocaltxn = isLocal
   }
+
+  def isLocalTxn: Boolean = isLocaltxn
 
   /**
     * Public API to end transaction
@@ -77,32 +81,38 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
       throw HiveAcidErrors.txnAlreadyClosed(id)
     }
 
-    logDebug(s"End transaction $this abort = $abort")
-    // NB: Unset it for thread proactively invariant of
-    //  underlying call fails or succeeds.
-    HiveAcidTxn.threadLocal.set(null)
+    logInfo(s"End transaction $this abort = $abort")
     HiveAcidTxn.txnManager.endTxn(id, abort)
     unsetTxn()
   }
 
-  private[hiveacid] def acquireLocks(hiveAcidMetadata: HiveAcidMetadata,
-                                     operationType: HiveAcidOperation.OperationType,
-                                     partitionNames: Seq[String]): Unit = {
+  private[hiveacid] def acquireLocks(operationType: HiveAcidOperation.OperationType): Unit = {
     if (isClosed.get()) {
       logError(s"Transaction already closed $this")
       throw HiveAcidErrors.txnAlreadyClosed(id)
     }
-    HiveAcidTxn.txnManager.acquireLocks(id, hiveAcidMetadata.dbName,
-      hiveAcidMetadata.tableName, operationType, partitionNames)
+    HiveAcidTxn.txnManager.acquireLocks(id, lockInfo, operationType)
+    logInfo(s"Lock taken for lockInfo $lockInfo in transaction with id $id")
   }
+
   // Public Interface
   def txnId: Long = id
+
+  def istxnClosed(): Boolean = isClosed.get()
+
+  def addTableLock(dbName: String, tblName: String): Unit = {
+    lockInfo.addTableLock(dbName, tblName)
+    logDebug(s"Added table lock for database $dbName table  $tblName to lock info of transaction $id")
+  }
+
+  def addPartitionLock(dbName: String, tblName: String, partitionNames: List[String]): Unit = {
+    lockInfo.addPartitionLock(dbName, tblName, partitionNames)
+    logDebug(s"Added partition lock for database $dbName table  $tblName $partitionNames " +
+                                                        s"to lock info of transaction $id")
+  }
 }
 
 object HiveAcidTxn extends Logging {
-
-  val threadLocal = new ThreadLocal[HiveAcidTxn]
-
   // Helper function to create snapshot.
   private[hiveacid] def createSnapshot(txn: HiveAcidTxn, hiveAcidMetadata: HiveAcidMetadata): HiveAcidTableSnapshot = {
     val currentWriteId = txnManager.getCurrentWriteId(txn.txnId,
@@ -132,14 +142,6 @@ object HiveAcidTxn extends Logging {
   def createTransaction(sparkSession: SparkSession): HiveAcidTxn = {
     setUpTxnManager(sparkSession)
     new HiveAcidTxn(sparkSession)
-  }
-
-  /**
-    * Given a transaction id return the HiveAcidTxn object. Raise exception if not found.
-    * @return
-    */
-  def currentTxn(): HiveAcidTxn = {
-    threadLocal.get()
   }
 }
 

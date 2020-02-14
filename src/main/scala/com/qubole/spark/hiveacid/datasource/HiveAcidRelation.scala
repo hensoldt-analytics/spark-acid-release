@@ -53,6 +53,8 @@ case class HiveAcidRelation(sparkSession: SparkSession,
   private val hiveAcidTable: HiveAcidTable = new HiveAcidTable(sparkSession,
     hiveAcidMetadata, parameters)
 
+  def endTxn() : Unit = hiveAcidTable.endTxn()
+
   private val readOptions = ReadConf.build(sparkSession, parameters)
 
   override def sqlContext: SQLContext = sparkSession.sqlContext

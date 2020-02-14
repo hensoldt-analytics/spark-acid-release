@@ -97,7 +97,8 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
 
       // FIXME: IF we knew the partition then we should
       //   only lock that partition.
-      curTxn.acquireLocks(hiveAcidMetadata, operationType, Seq())
+      curTxn.addTableLock(hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)
+      curTxn.acquireLocks(operationType)
 
       // Create Snapshot !!!
       val curSnapshot = HiveAcidTxn.createSnapshot(curTxn, hiveAcidMetadata)
