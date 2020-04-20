@@ -30,7 +30,7 @@ publishArtifact in (Compile, packageBin) := false
 
 val hive_version = sys.props.getOrElse("hive.version", "3.1.2")
 
-val orc_version = sys.props.getOrElse("orc.version", "1.5.6")
+val orc_version = sys.props.getOrElse("orc.version", "1.5.9")
 
 val thriftVersion = sys.props.getOrElse("thrift.version", "0.9.3")
 
