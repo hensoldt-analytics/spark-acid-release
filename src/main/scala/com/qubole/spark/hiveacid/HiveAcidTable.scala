@@ -48,9 +48,11 @@ class HiveAcidTable(sparkSession: SparkSession,
                    ) extends Logging {
 
   private var isLocalTxn: Boolean = false
+  private var isWriteOp: Boolean = true
   private var curTxn: HiveAcidTxn = _
 
-  private def addLock() : Unit = {
+  // TODO : Need to enable it for multi table transaction support.
+  /*private def addLock() : Unit = {
     curTxn = HiveAcidTxnManagerObject.getTxn(sparkSession)
     if (curTxn != null) {
       curTxn.addTableLock(hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)
@@ -66,25 +68,42 @@ class HiveAcidTable(sparkSession: SparkSession,
         curTxn.end()
       }
     }
+  }*/
+
+  def endTxn(): Unit = if (curTxn != null && !isLocalTxn && !curTxn.istxnClosed()) {
+    curTxn.end()
+    curTxn = null
   }
 
   // Start local transaction if not passed.
   private def getOrCreateTxn(): Unit = {
-    curTxn match {
-      case null =>
+    if (curTxn != null) logWarning(s"Overwriting the already existing txn $curTxn")
+
+    val startLocalTxn = if (isWriteOp) {
+      "true"
+    } else {
+      sparkSession.sparkContext.getConf.get("spark.acid.start.local.txn", "false")
+    }
+
+    curTxn = HiveAcidTxn.createTransaction(sparkSession)
+    startLocalTxn match {
+      case "true" =>
         // create local txn
-        curTxn = HiveAcidTxn.createTransaction(sparkSession)
-        curTxn.begin()
         isLocalTxn = true
-      case txn =>
-        logDebug(s"Existing Transactions $txn")
+        curTxn.begin()
+        logDebug(s"Started local Transactions $curTxn")
+      case _ =>
+        isLocalTxn = false
+        curTxn.begin(false)
+        logDebug(s"Started normal Transactions $curTxn")
     }
   }
 
   // End and reset transaction and snapshot
   // if locally started
   private def unsetOrEndTxn(abort: Boolean = false): Unit = {
-    if (! isLocalTxn) {
+    // In case of abort, the transaction is failed so abort it even if its not a local txn
+    if (!isLocalTxn && !abort) {
       return
     }
     curTxn.end(abort)
@@ -185,6 +204,7 @@ class HiveAcidTable(sparkSession: SparkSession,
     //  outside this function. For transactional guarantees, the transaction
     //  boundary needs to span getRDD call. Currently we return the RDD
     //  without any protection.
+    isWriteOp = false
     inTxn {
       val tableReader = new TableReader(sparkSession, curTxn, hiveAcidMetadata)
       res = tableReader.getRdd(requiredColumns, filters, readConf)

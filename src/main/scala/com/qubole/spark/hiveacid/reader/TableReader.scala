@@ -99,7 +99,11 @@ private[hiveacid] class TableReader(sparkSession: SparkSession,
     // Acquire lock on all the partition and then create snapshot. Every time getRDD is called
     // it creates a new snapshot.
     // NB: partitionList is Seq if partition pruning is not enabled
-    if (curTxn.isLocalTxn) curTxn.addTableLock(hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)
+    if (hiveAcidMetadata.isPartitioned) {
+      curTxn.addPartitionLock(hiveAcidMetadata.dbName, hiveAcidMetadata.tableName, partitionList)
+    } else {
+      curTxn.addTableLock(hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)
+    }
     curTxn.acquireLocks(HiveAcidOperation.READ)
 
     // Create Snapshot !!!

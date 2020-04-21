@@ -86,6 +86,8 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
     unsetTxn()
   }
 
+  def getSparkSession: SparkSession = sparkSession
+
   private[hiveacid] def acquireLocks(operationType: HiveAcidOperation.OperationType): Unit = {
     if (isClosed.get()) {
       logError(s"Transaction already closed $this")
@@ -105,7 +107,7 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
     logDebug(s"Added table lock for database $dbName table  $tblName to lock info of transaction $id")
   }
 
-  def addPartitionLock(dbName: String, tblName: String, partitionNames: List[String]): Unit = {
+  def addPartitionLock(dbName: String, tblName: String, partitionNames: Seq[String]): Unit = {
     lockInfo.addPartitionLock(dbName, tblName, partitionNames)
     logDebug(s"Added partition lock for database $dbName table  $tblName $partitionNames " +
                                                         s"to lock info of transaction $id")

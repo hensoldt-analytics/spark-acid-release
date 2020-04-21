@@ -29,7 +29,6 @@ import com.qubole.shaded.hadoop.hive.metastore.{HiveMetaStoreClient, LockCompone
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 import com.qubole.spark.hiveacid.hive.HiveConverter
 import com.qubole.spark.hiveacid.{HiveAcidErrors, HiveAcidOperation}
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.SqlUtils
@@ -55,6 +54,8 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   private lazy val heartBeaterClient: HiveMetaStoreClient =
     new HiveMetaStoreClient(hiveConf, null, false)
 
+  HiveAcidTxnManagerObject.registerTxnListeners(sparkSession)
+
   // FIXME: Use thread pool so that we don't create multiple threads
   private val heartBeater: ScheduledExecutorService =
     Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
@@ -68,7 +69,12 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
 
   private val user: String = sparkSession.sparkContext.sparkUser
 
-  private val shutdownInitiated: AtomicBoolean = new AtomicBoolean(true)
+  private val shutdownInitiated: AtomicBoolean = new AtomicBoolean(false)
+
+  // activeTxns is modified with synchronized in this class, so should be read same way.
+  def getAllActiveTxn: List[(Long, HiveAcidTxn)] = synchronized {
+    HiveAcidTxnManagerObject.activeTxns.toList
+  }
 
   /**
     * Register transactions with Hive Metastore and tracks it under HiveAcidTxnManagerObject.activeTxns
@@ -82,6 +88,7 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
       throw HiveAcidErrors.repeatedTxnId(txnId, HiveAcidTxnManagerObject.activeTxns.keySet.toSeq)
     }
     HiveAcidTxnManagerObject.activeTxns.put(txnId, txn)
+    sparkSession.conf.set("spark.acid.current.txn.id", txnId.toString)
     logDebug(s"Adding txnId: $txnId to tracker")
     txnId
   }
@@ -308,11 +315,12 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
         return
       }
 
-      if (HiveAcidTxnManagerObject.activeTxns.nonEmpty) {
-        HiveAcidTxnManagerObject.activeTxns.foreach {
-          case (_, txn) => send(txn)
-        }
-     }
+      val txnList = HiveAcidTxn.txnManager.getAllActiveTxn
+      txnList.foreach {
+          case (_, txn) =>
+            logDebug(s"Sent heartbeat for txnId: ${txn.txnId}")
+            send(txn)
+      }
     }
   }
 
@@ -365,7 +373,6 @@ private [hiveacid] class LockInfo extends Logging {
       })*/
       tableLock.put(tblName, partList)
     }
-    tableLock.put(tblName, null)
     lockInfo.put(dbName, tableLock)
     this
   }
@@ -426,63 +433,34 @@ object HiveAcidTxnManagerObject {
   // object for it to be accessible to back ground thread running
   // inside HiveAcidTxnManager.
   private[hiveacid] val activeTxns = new scala.collection.mutable.HashMap[Long, HiveAcidTxn]()
-  private val sessionToTxnMap = new scala.collection.mutable.HashMap[SparkSession, HiveAcidTxn]()
-  def openTxn(sparkSession: SparkSession) : Unit = synchronized {
-    var curTxn = sessionToTxnMap.get(sparkSession).orNull
-    curTxn match {
-      case null => createTxn(sparkSession)
-      case txn => {
-        if (txn.istxnClosed()) {
-          sessionToTxnMap.remove(sparkSession)
-          createTxn(sparkSession)
-        } else {
-          throw new Exception(s"Existing Transaction $txn")
-        }
-      }
-    }
-  }
+  private val registeredListenerSet = new scala.collection.mutable.HashSet[SparkSession]()
 
-  private def createTxn(sparkSession: SparkSession) : Unit = {
-    var curTxn = HiveAcidTxn.createTransaction(sparkSession)
-    try {
-      curTxn.begin(false)
-    } finally {
-      if (!curTxn.istxnClosed()) sessionToTxnMap.put(sparkSession, curTxn)
-    }
+  def openTxn(sparkSession: SparkSession) : Unit = synchronized {
+    // TODO : Need to enable it for multi table transaction support.
   }
 
   def commitTxn(sparkSession: SparkSession) : Unit = synchronized {
-    var curTxn = sessionToTxnMap.get(sparkSession).orNull
-    curTxn match {
-      case null => throw new Exception(s" No Transaction Exist")
-      case txn =>
-        try {
-          txn.end()
-        } finally {
-          if (txn.istxnClosed()) sessionToTxnMap.remove(sparkSession)
-        }
-    }
-  }
-
-  private[hiveacid] def getTxn(sparkSession: SparkSession) : HiveAcidTxn = synchronized {
-    sessionToTxnMap.get(sparkSession).orNull
+    // TODO : Need to enable it for multi table transaction support.
+    endAllTxn(sparkSession)
   }
 
   def registerTxnListeners(sparkSession: SparkSession) : Unit = synchronized {
-    sparkSession.sparkContext.addSparkListener(new SparkAcidListener(sparkSession))
-    sparkSession.listenerManager.register(new SparkAcidQueryListener(sparkSession))
-  }
-
-  /*def unregisterTxnListeners(sparkSession: SparkSession) : Unit = synchronized {
-    sparkSession.sparkContext.removeSparkListener(new SparkAcidListener())
-    sparkSession.listenerManager.unregister(new SparkAcidQueryListener())
-  }
-
-  def endAllTxn(): Unit = synchronized {
-    // abort all active transactions
-    activeTxns.foreach {
-      case (_, txn) => txn.end(true)
+    if (!registeredListenerSet.contains(sparkSession)) {
+      sparkSession.sparkContext.addSparkListener(new SparkAcidListener(sparkSession))
+      sparkSession.listenerManager.register(new SparkAcidQueryListener(sparkSession))
+      registeredListenerSet.add(sparkSession)
     }
-    activeTxns.clear()
-  }*/
+  }
+
+  def endAllTxn(sparkSession: SparkSession, txnId : Long = -1): Unit = synchronized {
+    // make a copy as txn.end does a remove from activeTxns map
+    val txnList = HiveAcidTxn.txnManager.getAllActiveTxn
+    txnList.foreach {
+      case (_, txn) =>
+        if ((sparkSession == null || sparkSession == txn.getSparkSession) &&
+          (txnId == -1 || txn.txnId == txnId)) {
+          txn.end(true)
+        }
+    }
+  }
 }

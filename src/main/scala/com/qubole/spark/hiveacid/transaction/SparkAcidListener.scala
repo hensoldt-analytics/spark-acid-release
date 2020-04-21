@@ -49,10 +49,6 @@ class SparkAcidQueryListener(sparkSession: SparkSession) extends QueryExecutionL
 class SparkAcidListener(sparkSession: SparkSession) extends SparkListener {
   override def onApplicationEnd(applicationEnd: SparkListenerApplicationEnd): Unit = {
     super.onApplicationEnd(applicationEnd)
-    val txn = HiveAcidTxnManagerObject.getTxn(sparkSession)
-    if (txn != null && !txn.istxnClosed) {
-      txn.end()
-      //logDebug(s"Committed Hive transaction  ${txn.txnId}")
-    }
+    HiveAcidTxnManagerObject.commitTxn(sparkSession)
   }
 }
