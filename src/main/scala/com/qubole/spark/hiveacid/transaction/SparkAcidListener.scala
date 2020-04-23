@@ -49,6 +49,6 @@ class SparkAcidQueryListener(sparkSession: SparkSession) extends QueryExecutionL
 class SparkAcidListener(sparkSession: SparkSession) extends SparkListener {
   override def onApplicationEnd(applicationEnd: SparkListenerApplicationEnd): Unit = {
     super.onApplicationEnd(applicationEnd)
-    HiveAcidTxnManagerObject.commitTxn(sparkSession)
+    HiveAcidTxnManagerObject.endAllTxn()
   }
 }

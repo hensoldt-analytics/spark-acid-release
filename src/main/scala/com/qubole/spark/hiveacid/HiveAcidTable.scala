@@ -23,7 +23,6 @@ import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
 import com.qubole.spark.hiveacid.rdd.EmptyRDD
 import com.qubole.spark.hiveacid.transaction._
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, _}
@@ -34,7 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.execution.datasources.LogicalRelation
-
+import java.io.Closeable
 
 /**
  * Represents a hive acid table and exposes API to perform operations on top of it
@@ -45,11 +44,16 @@ import org.apache.spark.sql.execution.datasources.LogicalRelation
 class HiveAcidTable(sparkSession: SparkSession,
                     hiveAcidMetadata: HiveAcidMetadata,
                     parameters: Map[String, String]
-                   ) extends Logging {
+                   ) extends Logging with Closeable {
 
   private var isLocalTxn: Boolean = false
   private var isWriteOp: Boolean = true
   private var curTxn: HiveAcidTxn = _
+
+  override def close(): Unit = {
+    logWarning(s"HiveAcidTable is out of scope, closing txn $curTxn")
+    endTxn()
+  }
 
   // TODO : Need to enable it for multi table transaction support.
   /*private def addLock() : Unit = {
@@ -77,7 +81,11 @@ class HiveAcidTable(sparkSession: SparkSession,
 
   // Start local transaction if not passed.
   private def getOrCreateTxn(): Unit = {
-    if (curTxn != null) logWarning(s"Overwriting the already existing txn $curTxn")
+    // The same relation can be used to create multiple rdds. Each of the rdd will have same txn snapshot.
+    if (curTxn != null) {
+      logInfo(s"active txn found for hive table $curTxn")
+      return
+    }
 
     val startLocalTxn = if (isWriteOp) {
       "true"

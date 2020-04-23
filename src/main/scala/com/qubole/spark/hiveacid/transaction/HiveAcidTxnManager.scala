@@ -54,7 +54,19 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
   private lazy val heartBeaterClient: HiveMetaStoreClient =
     new HiveMetaStoreClient(hiveConf, null, false)
 
-  HiveAcidTxnManagerObject.registerTxnListeners(sparkSession)
+  val listener = new SparkAcidListener(sparkSession)
+  val queryListener = new SparkAcidQueryListener(sparkSession)
+
+  def registerTxnListeners(): Unit = {
+    sparkSession.sparkContext.addSparkListener(listener)
+    sparkSession.listenerManager.register(queryListener)
+  }
+  registerTxnListeners()
+
+  def unregisterTxnListeners(): Unit = {
+    sparkSession.sparkContext.removeSparkListener(listener)
+    sparkSession.listenerManager.unregister(queryListener)
+  }
 
   // FIXME: Use thread pool so that we don't create multiple threads
   private val heartBeater: ScheduledExecutorService =
@@ -135,10 +147,8 @@ private[hiveacid] class HiveAcidTxnManager(sparkSession: SparkSession) extends L
     // heartBeater.awaitTermination(10, TimeUnit.SECONDS)
 
     // abort all active transactions
-    HiveAcidTxnManagerObject.activeTxns.foreach {
-      case (_, txn) => txn.end(true)
-    }
-    HiveAcidTxnManagerObject.activeTxns.clear()
+    HiveAcidTxnManagerObject.endAllTxn()
+    unregisterTxnListeners()
 
     // close all clients
     if (client != null) {
@@ -341,7 +351,8 @@ private [hiveacid] class LockInfo extends Logging {
 
   def addTableLock(dbName: String, tblName: String) : LockInfo = {
     if (getLocked) {
-      throw new Exception("Lock acquire is already done for the txn")
+      logInfo(s"Lock acquire is already done for the txn")
+      return this
     }
 
     var tableLock = lockInfo.get(dbName).orNull
@@ -355,7 +366,8 @@ private [hiveacid] class LockInfo extends Logging {
 
   def addPartitionLock(dbName: String, tblName: String, partitionNames: Seq[String]) : LockInfo = {
     if (getLocked) {
-      throw new Exception("Lock acquire is already done for the txn")
+      logInfo(s"Lock acquire is already done for the txn")
+      return this
     }
     var tableLock = lockInfo.get(dbName).orNull
     if (tableLock == null) {
@@ -433,7 +445,6 @@ object HiveAcidTxnManagerObject {
   // object for it to be accessible to back ground thread running
   // inside HiveAcidTxnManager.
   private[hiveacid] val activeTxns = new scala.collection.mutable.HashMap[Long, HiveAcidTxn]()
-  private val registeredListenerSet = new scala.collection.mutable.HashSet[SparkSession]()
 
   def openTxn(sparkSession: SparkSession) : Unit = synchronized {
     // TODO : Need to enable it for multi table transaction support.
@@ -441,24 +452,15 @@ object HiveAcidTxnManagerObject {
 
   def commitTxn(sparkSession: SparkSession) : Unit = synchronized {
     // TODO : Need to enable it for multi table transaction support.
-    endAllTxn(sparkSession)
+    endAllTxn()
   }
 
-  def registerTxnListeners(sparkSession: SparkSession) : Unit = synchronized {
-    if (!registeredListenerSet.contains(sparkSession)) {
-      sparkSession.sparkContext.addSparkListener(new SparkAcidListener(sparkSession))
-      sparkSession.listenerManager.register(new SparkAcidQueryListener(sparkSession))
-      registeredListenerSet.add(sparkSession)
-    }
-  }
-
-  def endAllTxn(sparkSession: SparkSession, txnId : Long = -1): Unit = synchronized {
+  def endAllTxn(txnId : Long = -1): Unit = synchronized {
     // make a copy as txn.end does a remove from activeTxns map
     val txnList = HiveAcidTxn.txnManager.getAllActiveTxn
     txnList.foreach {
       case (_, txn) =>
-        if ((sparkSession == null || sparkSession == txn.getSparkSession) &&
-          (txnId == -1 || txn.txnId == txnId)) {
+        if (txnId == -1 || txn.txnId == txnId) {
           txn.end(true)
         }
     }

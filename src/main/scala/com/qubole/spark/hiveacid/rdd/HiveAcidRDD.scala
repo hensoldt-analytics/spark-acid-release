@@ -198,12 +198,12 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
   override def getPartitions: Array[Partition] = {
     var jobConf = getJobConf
 
-    if (isFullAcidTable) {
-      // If full ACID table, just set the right writeIds, the
-      // OrcInputFormat.getSplits() will take care of the rest
-      AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
-      jobConf.set(ValidTxnList.VALID_TXNS_KEY, validTxnList.writeToString)
-    } else {
+    // If full ACID table, just set the right writeIds, the
+    // OrcInputFormat.getSplits() will take care of the rest
+    AcidUtils.setValidWriteIdList(jobConf, validWriteIds)
+    jobConf.set(ValidTxnList.VALID_TXNS_KEY, validTxnList.writeToString)
+
+    if (!isFullAcidTable) {
       val finalPaths = new ListBuffer[Path]()
       val pathsWithFileOriginals = new ListBuffer[Path]()
       val dirs = FileInputFormat.getInputPaths(jobConf).toSeq // Seq(acidState.location)
@@ -240,9 +240,11 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
       } else {
         allInputSplits
       }
+      logInfo("getPartitions : valid write id list: " + validWriteIds)
       val array = new Array[Partition](inputSplits.size)
       for (i <- 0 until inputSplits.size) {
         array(i) = new HiveAcidPartition(id, i, inputSplits(i))
+        logInfo("getPartitions : Input split: " + inputSplits(i))
       }
       array
     } catch {
@@ -259,7 +261,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
     val iter: NextIterator[(RecordIdentifier, V)] = new NextIterator[(RecordIdentifier, V)] {
 
       private val split = theSplit.asInstanceOf[HiveAcidPartition]
-      logDebug("Input split: " + split.inputSplit)
+      logInfo("compute : Input split: " + split.inputSplit)
       val jobConf: JobConf = getJobConf
 
       private var reader: RecordReader[K, V] = _
