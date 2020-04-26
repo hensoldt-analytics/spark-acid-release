@@ -102,17 +102,18 @@ private[hiveacid] object HiveConverter extends Logging {
     */
   def compileFilter(f: Filter): Option[String] = Option(x = f match {
     case EqualTo(attr, value) => s"$attr = ${compileValue(value)}"
-    case EqualNullSafe(attr, value) =>
-      val col = attr
+    case EqualNullSafe(attr, value) => s"$attr = ${compileValue(value)}"
+    // TODO: how to handle null. The below implementations fails with non string data types
+     /* val col = attr
       s"(NOT ($col != ${compileValue(value)} OR $col = 'NULL' OR " +
         s"${compileValue(value)} = 'NULL') OR " +
-        s"($col = 'NULL' AND ${compileValue(value)} = 'NULL'))"
+        s"($col = 'NULL' AND ${compileValue(value)} = 'NULL'))"*/
     case LessThan(attr, value) => s"$attr < ${compileValue(value)}"
     case GreaterThan(attr, value) => s"$attr > ${compileValue(value)}"
     case LessThanOrEqual(attr, value) => s"$attr <= ${compileValue(value)}"
     case GreaterThanOrEqual(attr, value) => s"$attr >= ${compileValue(value)}"
-    case IsNull(attr) => s"$attr = 'NULL'"
-    case IsNotNull(attr) => s"$attr != 'NULL'"
+    //case IsNull(attr) => s"$attr = 'NULL'" // TODO: how to handle null
+    ///case IsNotNull(attr) => s"$attr != 'NULL'" // TODO: how to handle null
     case StringStartsWith(attr, value) => s"$attr LIKE '$value%'"
     case StringEndsWith(attr, value) => s"$attr LIKE '%$value'"
     case StringContains(attr, value) => s"$attr LIKE '%$value%'"
