@@ -78,7 +78,9 @@ class HiveAcidTxn(sparkSession: SparkSession) extends Logging {
     */
   def end(abort: Boolean = false): Unit = synchronized {
     if (isClosed.get) {
-      throw HiveAcidErrors.txnAlreadyClosed(id)
+      // Multiple thread might try to close the txn. The second one should be ignored.
+      logInfo(s"txnAlreadyClosed $this abort = $abort")
+      return
     }
 
     logInfo(s"End transaction $this abort = $abort")

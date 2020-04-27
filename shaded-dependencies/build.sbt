@@ -36,6 +36,8 @@ val thriftVersion = sys.props.getOrElse("thrift.version", "0.9.3")
 
 val libfbVersion = sys.props.getOrElse("libfb.version", "0.9.3")
 
+val failureaccessVersion = sys.props.getOrElse("failureaccess.version", "1.0.1")
+
 val gbnUrl = sys.props.getOrElse("gbnurl", "https://repo1.maven.org/maven2/")
 val repoUrl = sys.props.getOrElse("hive.repo", "https://repo1.maven.org/maven2/")
 resolvers += "spark-packages" at sys.props.getOrElse("spark.repo", "https://dl.bintray.com/spark-packages/maven/")
@@ -62,7 +64,8 @@ libraryDependencies ++= Seq(
 	// To deal with hive3 metastore library 0.9.3 vs zeppelin thirft
 	// library version 0.9.1 conflict when runing Notebooks.
 	"org.apache.thrift" % "libfb303" % libfbVersion,
-	"org.apache.thrift" % "libthrift" % thriftVersion
+	"org.apache.thrift" % "libthrift" % thriftVersion,
+        "com.google.guava" % "failureaccess" % failureaccessVersion
 )
 
 assemblyShadeRules in assembly := Seq(
