@@ -13,6 +13,7 @@ val hadoopVersion = sys.props.getOrElse("hadoop.version", "2.8.1")
 scalacOptions ++= Seq(
 	"-Xlint",
 	"-deprecation",
+	"-Xfatal-warnings",
 	"-unchecked",
 	"-optimise",
 	"-Yinline-warnings"

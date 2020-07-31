@@ -404,13 +404,13 @@ private [hiveacid] class LockInfo extends Logging {
       case HiveAcidOperation.INSERT_OVERWRITE =>
         lcb.setExclusive().setOperationType(DataOperationType.UPDATE)
       case HiveAcidOperation.INSERT_INTO =>
-        lcb.setShared().setOperationType(DataOperationType.INSERT)
+        lcb.setSharedRead().setOperationType(DataOperationType.INSERT)
       case HiveAcidOperation.READ =>
-        lcb.setShared().setOperationType(DataOperationType.SELECT)
+        lcb.setSharedRead().setOperationType(DataOperationType.SELECT)
       case HiveAcidOperation.UPDATE =>
-        lcb.setSemiShared().setOperationType(DataOperationType.UPDATE)
+        lcb.setExclWrite().setOperationType(DataOperationType.UPDATE)
       case HiveAcidOperation.DELETE =>
-        lcb.setSemiShared().setOperationType(DataOperationType.DELETE)
+        lcb.setExclWrite().setOperationType(DataOperationType.DELETE)
       case _ =>
         throw HiveAcidErrors.invalidOperationType(operationType.toString)
     }
