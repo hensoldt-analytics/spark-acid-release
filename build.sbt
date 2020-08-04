@@ -6,7 +6,7 @@ crossScalaVersions := Seq("2.11.12")
 
 scalaVersion := crossScalaVersions.value.head
 
-sparkVersion := sys.props.getOrElse("spark.version", "2.4.3")
+sparkVersion := sys.props.getOrElse("spark.version", "2.3.2")
 
 val hadoopVersion = sys.props.getOrElse("hadoop.version", "2.8.1")
 

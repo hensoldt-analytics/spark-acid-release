@@ -112,7 +112,7 @@ class Table (
       s" when matched and s.key%2=1 then delete " +
       s" when not matched then insert values(${getRow(1000)})"
 
-  def disableCompaction = s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('NO_AUTO_COMPACTION' = 'true')"
+  def disableCompaction = s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('NO_AUTO_COMPACTION' = 'true','EXTERNAL'='false')"
   def disableCleanup = s"ALTER TABLE ${hiveTname} SET TBLPROPERTIES ('NO_CLEANUP' = 'true')"
   def minorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'minor'"
   def majorCompaction = s"ALTER TABLE ${hiveTname} COMPACT 'major'"

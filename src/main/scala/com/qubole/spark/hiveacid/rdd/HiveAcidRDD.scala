@@ -290,7 +290,7 @@ private[hiveacid] class HiveAcidRDD[K, V](sc: SparkContext,
             null
         }
       // Register an on-task-completion callback to close the input stream.
-      context.addTaskCompletionListener[Unit] { _ =>
+      context.addTaskCompletionListener { _ =>
         closeIfNeeded()
       }
 

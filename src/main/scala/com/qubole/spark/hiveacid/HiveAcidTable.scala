@@ -161,7 +161,7 @@ class HiveAcidTable(sparkSession: SparkSession,
       case p: LogicalRelation =>
         p.copy(output = p.output
           .map((x: AttributeReference) =>
-            x.withQualifier(hiveAcidMetadata.fullyQualifiedName.split('.').toSeq))
+            x.withQualifier(Option(hiveAcidMetadata.fullyQualifiedName)))
         )
       case _ => plan
     }

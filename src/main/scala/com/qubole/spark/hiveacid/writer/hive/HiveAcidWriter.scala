@@ -60,8 +60,8 @@ abstract private[writer] class HiveAcidWriter(val options: WriterOptions,
       val partitionName = ScalaUDF(
         ExternalCatalogUtils.getPartitionPathString _,
         StringType,
-        Seq(Literal(c.name), Cast(c, StringType, Option(options.timeZoneId))),
-        Seq(true, true))
+        Seq(Literal(c.name), Cast(c, StringType, Option(options.timeZoneId)))
+      )
       if (i == 0) Seq(partitionName) else Seq(Literal(Path.SEPARATOR), partitionName)
     })
 
