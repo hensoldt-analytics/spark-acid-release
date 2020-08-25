@@ -256,6 +256,102 @@ class TestHelper {
     assert(hiveResStr == sparkResStr)
   }
 
+  def createHiveTable(): Unit = {
+    hiveExecute("DROP TABLE IF EXISTS HiveTestDB.tHive")
+    hiveExecute("CREATE TABLE IF NOT EXISTS HiveTestDB.tHive(col1 bigint, col2 bigint) stored as ORC TBLPROPERTIES ('transactional'='true', 'transactional_properties'='default')")
+  }
+
+  def compareNumOfRows(writeEnable: Boolean): Unit = {
+    val sparkResRows1 = sparkCollect("SELECT * FROM HiveTestDB.tHive")
+    val result = sparkRowsToStr(sparkResRows1)
+    val resultRows = result.split("\n").length
+    log.info(s"in output:\n$result expected rows = $resultRows")
+    if (writeEnable) {
+      val expResultRows = 14
+      assert(resultRows == expResultRows)
+      log.info("Assert that rows are inserted: " + (resultRows == expResultRows))
+    }
+    else {
+      val expResultRows = 1
+      assert(resultRows == expResultRows)
+      log.info("Assert that no rows were inserted: " + (resultRows == expResultRows))
+    }
+
+  }
+
+  def writeUsingDF(writeEnable: Boolean): Unit = {
+    createHiveTable()
+    val df = spark.sqlContext.read.json("src/test/people.json")
+    df.write.format("HiveAcid").mode("append").option("table", "HiveTestDB.tHive").save()
+    compareNumOfRows(writeEnable)
+  }
+
+  def writeWithSparkSql(writeEnable: Boolean): Unit = {
+    createHiveTable()
+    val cmd = "INSERT INTO HiveTestDB.tHive VALUES(1,2),(3,4),(5,6),(1,2),(3,4),(5,6),(5,6)"
+    log.info("Spark> " + cmd)
+    log.info("====>" +
+      "Based on the analyzed plan, if Write is enabled ==> InsertIntoDataSourceCommand. Else If, write is disabled==>" +
+      " InsertIntoHiveTable indicating " + spark.sql(cmd).queryExecution.analyzed)
+    val nodeName = spark.sql(cmd).queryExecution.analyzed.nodeName
+    if (writeEnable) {
+      assert(nodeName == "InsertIntoDataSourceCommand")
+      log.info("Assert if Insert is successful: " + (nodeName == "InsertIntoDataSourceCommand"))
+      compareNumOfRows(writeEnable)
+    }
+    else {
+      assert(nodeName == "InsertIntoHiveTable")
+      log.info("Assert if Insert is disabled: " + (nodeName == "InsertIntoHiveTable"))
+    }
+
+  }
+
+  def writeIsEnabled_DF(): Unit = {
+    spark.sessionState.conf.setConfString("tests.enable.write.via.direct.reader.mode", "true")
+    val isWriteEnable: Boolean = spark.sessionState.conf.getConfString("tests.enable.write.via.direct.reader.mode", "false") == "true"
+    if (isWriteEnable) {
+      writeUsingDF(isWriteEnable)
+    }
+  }
+
+  def writeIsEnabled_SparkSql(): Unit = {
+    spark.sessionState.conf.setConfString("tests.enable.write.via.direct.reader.mode", "true")
+    val isWriteEnable: Boolean = spark.sessionState.conf.getConfString("tests.enable.write.via.direct.reader.mode", "false") == "true"
+    if (isWriteEnable) {
+      writeWithSparkSql(isWriteEnable)
+    }
+  }
+
+  def writeIsDisabled_DF(): Unit = {
+    spark.sessionState.conf.setConfString("tests.enable.write.via.direct.reader.mode", "false")
+    var expMessg: String = ""
+    val isWriteDisable: Boolean = spark.sessionState.conf.getConfString("tests.enable.write.via.direct.reader.mode", "false") == "false"
+    try {
+      writeUsingDF(!isWriteDisable)
+    }
+    catch {
+      case e: Exception =>
+        log.info(s"Expect writer to fail:$e")
+        expMessg = e.getMessage
+        assert(expMessg == "Write or Insert into table, through spark-acid is not supported please use HWC")
+    }
+
+  }
+
+  def writeIsDisabled_SparkSql(): Unit = {
+    spark.sessionState.conf.setConfString("tests.enable.write.via.direct.reader.mode", "false")
+    var expMessg: String = ""
+    val isWriteDisable: Boolean = spark.sessionState.conf.getConfString("tests.enable.write.via.direct.reader.mode", "false") == "false"
+    try {
+      writeWithSparkSql(!isWriteDisable)
+    }
+    catch {
+      case e: Exception =>
+        log.info(s"Expect writer to fail:$e")
+        expMessg = e.getMessage
+        assert(expMessg == "Write or Insert into table, through spark-acid is not supported please use HWC")}
+  }
+
   // Compare the results
   def compareResult(sparkRes1: Array[Row], sparkRes2: Array[Row]): Unit = {
     val sparkResStr1 = sparkRowsToStr(sparkRes1)

@@ -67,6 +67,7 @@ class WriteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
 
 
   // Test Run
+  isWriteEnableTest()
   insertIntoOverwriteTestForFullAcidTables(Table.allFullAcidTypes())
 
   // TODO: Currently requires compatibility check to be disabled in HMS to run clean
@@ -132,6 +133,44 @@ class WriteSuite extends FunSuite with BeforeAndAfterEach with BeforeAndAfterAll
         helper.myRun(testName, code)
       }
     }
+  }
+
+  def isWriteEnableTest(): Unit = {
+
+    val tableNameHive = "tHive"
+    var testName = s"Simple isWriteEnableTest for InsertInto  $tableNameHive using spark sql with write enabled "
+    test(testName) {
+      def code(): Unit = {
+        helper.writeIsEnabled_SparkSql()
+      }
+      helper.myRun(testName, code)
+    }
+
+    testName = s"Simple isWriteEnableTest for InsertInto  $tableNameHive using DF API with write enabled "
+    test(testName) {
+      def code(): Unit = {
+        helper.writeIsEnabled_DF()
+      }
+      helper.myRun(testName, code)
+    }
+
+    testName = s"Simple isWriteDisableTest for InsertInto  $tableNameHive using DF with write disabled "
+    test(testName) {
+      def code(): Unit = {
+        helper.writeIsDisabled_DF()
+      }
+      helper.myRun(testName, code)
+    }
+
+// TODO: This test needs orc-core debendency to pass as write using spark sql is disabled
+
+//    testName = s"Simple isWriteDisableTest for InsertInto  $tableNameHive using  spark sql with write disabled"
+//    test(testName) {
+//      def code(): Unit = {
+//        helper.writeIsDisabled_SparkSql()
+//      }
+//      helper.myRun(testName, code)
+//    }
   }
 
 }

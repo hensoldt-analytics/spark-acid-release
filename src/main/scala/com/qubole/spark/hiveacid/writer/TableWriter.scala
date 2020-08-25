@@ -27,7 +27,7 @@ import com.qubole.spark.hiveacid.hive.HiveAcidMetadata
 import com.qubole.spark.hiveacid.writer.hive.{HiveAcidFullAcidWriter, HiveAcidInsertOnlyWriter, HiveAcidWriterOptions}
 import com.qubole.spark.hiveacid.transaction._
 import com.qubole.spark.hiveacid.util.SerializableConfiguration
-
+import org.apache.log4j.{LogManager, Logger}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
@@ -93,8 +93,18 @@ private[hiveacid] class TableWriter(sparkSession: SparkSession,
 
     val (allColumns, partitionColumns, dataColumns) = getColumns(operationType, df)
 
+    var isWriteEnable: Boolean = false
+    isWriteEnable = sparkSession.sessionState.conf.getConfString("tests.enable.write.via.direct.reader.mode", "false") == "true"
+    val logger: Logger = LogManager.getLogger(this.getClass)
+
+    if (!isWriteEnable) {
+      logger.error("Write or Insert into table, through spark-acid is not supported please use HWC")
+      throw new UnsupportedOperationException("Write or Insert into table, through spark-acid is not supported please use HWC")
+    }
+
     try {
 
+      logger.warn("Write through spark-acid is enabled for testing only and is not recommended for production. [isWriteEnabled= "+isWriteEnable+"]")
       // FIXME: IF we knew the partition then we should
       //   only lock that partition.
       curTxn.addTableLock(hiveAcidMetadata.dbName, hiveAcidMetadata.tableName)

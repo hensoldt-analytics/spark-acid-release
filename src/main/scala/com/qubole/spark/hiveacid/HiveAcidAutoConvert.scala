@@ -29,6 +29,7 @@ import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.LogicalRelation
 
 import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
+import org.apache.log4j.{Level, LogManager, Logger}
 
 
 /**
@@ -37,10 +38,23 @@ import com.qubole.spark.hiveacid.datasource.HiveAcidDataSource
  * @param spark - spark session
  */
 case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
+  val logger: Logger = LogManager.getLogger(this.getClass)
+  logger.setLevel(Level.INFO)
 
   private def isConvertible(relation: HiveTableRelation): Boolean = {
     val serde = relation.tableMeta.storage.serde.getOrElse("").toLowerCase(Locale.ROOT)
     relation.tableMeta.properties.getOrElse("transactional", "false").toBoolean
+  }
+
+  private def isWriteEnabled(): Boolean = {
+    var isWriteEnable: Boolean = false
+    isWriteEnable = spark.sessionState.conf.getConfString("tests.enable.write.via.direct.reader.mode", "false") == "true"
+    if (isWriteEnable == true) {
+      logger.info("Write through spark-acid is enabled for testing only and is not recommended for production. [isWriteEnabled= " + isWriteEnable + "]")
+    } else {
+      logger.info("Write or Insert into table, through spark-acid is not supported please use HWC")
+      }
+    isWriteEnable
   }
 
   private def convert(relation: HiveTableRelation): LogicalRelation = {
@@ -55,7 +69,7 @@ case class HiveAcidAutoConvert(spark: SparkSession) extends Rule[LogicalPlan] {
     plan transform  {
       // Write path
       case InsertIntoTable(r: HiveTableRelation, partition, query, overwrite, ifPartitionNotExists)
-        if query.resolved && DDLUtils.isHiveTable(r.tableMeta) && isConvertible(r) =>
+        if query.resolved && DDLUtils.isHiveTable(r.tableMeta) && isConvertible(r) && isWriteEnabled()  =>
         InsertIntoTable(convert(r), partition, query, overwrite, ifPartitionNotExists)
 
       // Read path
