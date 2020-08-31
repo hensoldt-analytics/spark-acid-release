@@ -75,8 +75,10 @@ case class HiveAcidRelation(sparkSession: SparkSession,
   }
 
   override def sizeInBytes: Long = {
-    val compressionFactor = sparkSession.sessionState.conf.fileCompressionFactor
-    (sparkSession.sessionState.conf.defaultSizeInBytes * compressionFactor).toLong
+    // try getting actual size of the table first
+    hiveAcidMetadata.hTable.getParameters
+      .getOrDefault("totalSize", sparkSession.sessionState.conf.defaultSizeInBytes.toString).toLong
+
   }
 
   // FIXME: should it be true / false. Recommendation seems to
