@@ -79,7 +79,8 @@ assemblyShadeRules in assembly := Seq(
 
 	ShadeRule.rename("com.google.**" -> "com.qubole.shaded.@1").inAll,
 	ShadeRule.rename("com.facebook.fb303.**" -> "com.qubole.shaded.facebook.fb303.@1").inAll,
-	ShadeRule.rename("org.apache.thrift.**" -> "com.qubole.shaded.thrift.@1").inAll
+	ShadeRule.rename("org.apache.thrift.**" -> "com.qubole.shaded.thrift.@1").inAll,
+	ShadeRule.rename("shaded.parquet.**" -> "com.qubole.shaded.parquet.shaded.@1").inAll
 )
 
 import sbtassembly.AssemblyPlugin.autoImport.ShadeRule
