@@ -9,7 +9,6 @@ scalaVersion := "2.11.12"
 scalacOptions ++= Seq(
 	"-Xlint",
 	"-deprecation",
-	"-Xfatal-warnings",
 	"-unchecked",
 	"-optimise",
 	"-Yinline-warnings"
